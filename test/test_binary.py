@@ -1,12 +1,11 @@
 import numpy as np
+import json
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import load_breast_cancer
 
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from catboost import CatBoostClassifier
-from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.ensemble import GradientBoostingClassifier
 
 from retrainer import ReTrainer
 
@@ -27,16 +26,23 @@ def test_xgb():
     X_train, X_test, y_train, y_test = get_toy_data(
         'breast_cancer', 'binary', 0
     )
-    model = XGBClassifier(
-        base_score=0.5,  # necessary to reproduce
-        reg_lambda=1.0,  # not necessary, but you must not set 0
-    )
+    model = XGBClassifier()
     model.fit(X_train, y_train)
+    # get base_score
+    # necessary to reproduce
+    if "XGB" in str(model):  # sklearn api
+        booster = model.get_booster()
+    else:
+        # xgboost.core.Booster
+        booster = model
+    xgb_config = json.loads(booster.save_config())
+    base_score = float(xgb_config["learner"]["learner_model_param"]["base_score"])
+
     new_model = ReTrainer(model)
-    new_model.fit(X_train, y_train)
+    new_model.fit(X_train, y_train, base_score)
     pred_test_0 = model.predict_proba(X_test)[:, 1]
     pred_test_1 = new_model.predict(X_test)
-    # print(np.abs(pred_test_0 - pred_test_1).max())
+    print(np.abs(pred_test_0 - pred_test_1).max())
 
 
 def test_lgb():
@@ -45,8 +51,11 @@ def test_lgb():
     )
     model = LGBMClassifier()
     model.fit(X_train, y_train)
-
-    inf_values = calc_influence(model, X_train, y_train, X_test, y_test)
+    new_model = ReTrainer(model)
+    new_model.fit(X_train, y_train)
+    pred_test_0 = model.predict_proba(X_test)[:, 1]
+    pred_test_1 = new_model.predict(X_test)
+    print(np.abs(pred_test_0 - pred_test_1).max())
 
 
 def test_cb():
@@ -54,36 +63,17 @@ def test_cb():
         'breast_cancer', 'binary', 0
     )
     model = CatBoostClassifier(
-        leaf_estimation_iterations=1
+        leaf_estimation_iterations=1, n_estimators=100
     )
     model.fit(X_train, y_train)
-
-    inf_values = calc_influence(model, X_train, y_train, X_test, y_test)
-
-
-def test_shb():
-    X_train, X_test, y_train, y_test = get_toy_data(
-        'breast_cancer', 'binary', 0
-    )
-    model = HistGradientBoostingClassifier()
-    model.fit(X_train, y_train)
-
-    inf_values = calc_influence(model, X_train, y_train, X_test, y_test)
-
-
-def test_sgb():
-    X_train, X_test, y_train, y_test = get_toy_data(
-        'breast_cancer', 'binary', 0
-    )
-    model = GradientBoostingClassifier()
-    model.fit(X_train, y_train)
-
-    inf_values = calc_influence(model, X_train, y_train, X_test, y_test)
+    new_model = ReTrainer(model)
+    new_model.fit(X_train, y_train, base_score=0.5)
+    pred_test_0 = model.predict_proba(X_test)[:, 1]
+    pred_test_1 = new_model.predict(X_test)
+    print(np.abs(pred_test_0 - pred_test_1).max())
 
 
 if __name__ == "__main__":
-    # test_sgb()
-    # test_shb()
     test_xgb()
-    # test_lgb()
-    # test_cb()
+    test_lgb()
+    test_cb()

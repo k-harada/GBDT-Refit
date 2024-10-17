@@ -4,6 +4,8 @@ import numpy as np
 
 from parsers.util import Parameters
 from parsers.parse_xgb import params_xgb, pred_leaf_xgb
+from parsers.parse_lgb import params_lgb, pred_leaf_lgb
+from parsers.parse_cb import params_cb, pred_leaf_cb
 
 
 class ReTrainer:
@@ -15,8 +17,7 @@ class ReTrainer:
         self.is_fit = False
         # get parameters
         if "LGBM" in str(model):
-            raise NotImplementedError
-            # self.params = parse_lgb(model)
+            self.params = asdict(params_lgb(model))
         elif "XGB" in str(model) or "xgb" in str(model):
             self.params = asdict(params_xgb(model))
         elif "HistGradientBoosting" in str(model):
@@ -24,6 +25,8 @@ class ReTrainer:
         elif "GradientBoosting" in str(model):
             raise NotImplementedError
             # self.leaves_train, self.params = parse_sgb(model, x_train, y_train, train=True)
+        elif 'CatBoost' in str(model):
+            self.params = asdict(params_cb(model))
         else:
             raise NotImplementedError
 
@@ -31,8 +34,7 @@ class ReTrainer:
         model = self.model
         # get leaves
         if "LGBM" in str(model):
-            raise NotImplementedError
-            # self.params = parse_lgb(model)
+            return pred_leaf_lgb(model, x)
         elif "XGB" in str(model) or "xgb" in str(model):
             return pred_leaf_xgb(model, x)
         elif "HistGradientBoosting" in str(model):
@@ -40,10 +42,12 @@ class ReTrainer:
         elif "GradientBoosting" in str(model):
             raise NotImplementedError
             # self.leaves_train, self.params = parse_sgb(model, x_train, y_train, train=True)
+        elif 'CatBoost' in str(model):
+            return pred_leaf_cb(model, x)
         else:
             raise NotImplementedError
 
-    def fit(self, x_train, y_train):
+    def fit(self, x_train, y_train, base_score=None):
         self.leaves_train = self.get_leaves(x_train)
         # re-fit
         self.x_train = x_train
@@ -62,7 +66,7 @@ class ReTrainer:
                 y_train_ = y_train.reshape((-1, ))
             else:
                 y_train_ = y_train
-            self.refit_1d(y_train_)
+            self.refit_1d(y_train_, base_score)
         elif self.params["objective"] == "binary":
             assert len(y_train.shape) <= 2
             if len(y_train.shape) == 2:
@@ -70,7 +74,7 @@ class ReTrainer:
                 y_train_ = y_train[:, 1]
             else:
                 y_train_ = y_train
-            self.refit_1d(y_train_)
+            self.refit_1d(y_train_, base_score)
         elif self.params["objective"] == "multiclass":
             assert len(y_train.shape) <= 2
             if len(y_train.shape) == 2:
@@ -80,16 +84,20 @@ class ReTrainer:
                 assert y_train.min() >= 0
                 assert y_train.max() <= self.params["n_class"] - 1
                 y_train_ = np.identity(self.params["n_class"])[y_train].astype(np.float64)
-            self.refit_2d(y_train_)
+            self.refit_2d(y_train_, base_score)
         else:
             raise NotImplementedError(f"objective {self.params['objective']} is not implemented.")
         self.is_fit = True
         return self
 
-    def refit_1d(self, y_train):
+    def refit_1d(self, y_train, base_score):
 
         n_data, n_trees = self.leaves_train.shape
         gg_train = np.zeros(self.leaves_train.shape).astype(np.float64)  # gradient on each step
+        if base_score is None:
+            self.params["base_score"] = y_train.mean()
+        else:
+            self.params["base_score"] = base_score
         p = self.params["base_score"] * np.ones(y_train.shape[0])
 
         if self.params["objective"] == "regression":
@@ -134,7 +142,7 @@ class ReTrainer:
                 raise NotImplementedError
         # check
 
-    def refit_2d(self, y_train):
+    def refit_2d(self, y_train, base_score):
 
         n_data, n_trees = self.leaves_train.shape
         gg_train = np.zeros(self.leaves_train.shape).astype(np.float64)  # gradient on each step

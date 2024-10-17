@@ -14,7 +14,6 @@ def params_xgb(model):
         booster = model
     xgb_config = json.loads(booster.save_config())
 
-    # leaves_train
     best = booster.attr("best_iteration")
     if best is not None:
         num_trees = booster.best_iteration + 1
@@ -35,8 +34,6 @@ def params_xgb(model):
     else:
         raise NotImplementedError(f"objective: {objective_}")
 
-    base_score = float(xgb_config["learner"]["learner_model_param"]["base_score"])
-
     if "tree_train_param" in xgb_config["learner"]["gradient_booster"].keys():
         # >= v2.0.0
         train_params = xgb_config["learner"]["gradient_booster"]["tree_train_param"]
@@ -47,7 +44,7 @@ def params_xgb(model):
     reg_lambda = float(train_params["reg_lambda"])
 
     params = Parameters(
-        objective, num_class, "newton", base_score, "xgb", learning_rate, num_trees, reg_lambda
+        objective, num_class, "newton", "xgb", learning_rate, num_trees, reg_lambda
     )
 
     return params
